@@ -1,0 +1,240 @@
+# ======================================================
+# 1. INSTALA E CARREGA PACOTES NECESSÁRIOS
+# ======================================================
+
+# Esses pacotes são usados para redes neurais (keras) e visualização de dados (ggplot2 e gridExtra)
+if (!require(keras)) install.packages("keras")          # Keras: pacote principal para criar redes neurais
+if (!require(ggplot2)) install.packages("ggplot2")      # ggplot2: para criar gráficos
+if (!require(gridExtra)) install.packages("gridExtra")  # gridExtra: para mostrar vários gráficos juntos
+
+library(keras)
+library(ggplot2)
+library(gridExtra)
+
+# ======================================================
+# 2. CARREGA O CONJUNTO DE DADOS MNIST
+# ======================================================
+
+# O MNIST é um conjunto clássico de aprendizado de máquina com 70.000 imagens
+# Cada imagem é um dígito manuscrito entre 0 e 9 (por exemplo, "3" ou "7")
+
+# As imagens são separadas em dois grupos:
+# - Treinamento (training): 60.000 imagens usadas para "ensinar" a rede
+# - Teste (test): 10.000 imagens usadas para "avaliar" o desempenho da rede após o treinamento
+
+mnist <- dataset_mnist() # função do pacote keras em R que baixa e carrega o conjunto de dados MNIST (Modified National Institute of Standards and Technology database).
+# Ver a estrutura da lista
+str(mnist)
+
+#Visualizar dimensões dos dados | 60.000 imagens de treino + 10.000 de teste | Cada imagem = 28x28 pixels
+dim(mnist$train$x)  # [1] 60000   28   28
+dim(mnist$test$x)   # [1] 10000   28   28
+length(mnist$train$y)  # 60000
+length(mnist$test$y)   # 10000
+
+# Obtém as imagens e rótulos da base de treino:
+x_train <- mnist$train$x  # Imagens de treino: 60.000 imagens, cada uma com 28x28 pixels
+y_train <- mnist$train$y  # Rótulos de treino: número real (ex: 0, 1, ..., 9) que aparece na imagem
+
+# Obtém as imagens e rótulos da base de teste:
+x_test <- mnist$test$x    # Imagens de teste: 10.000 imagens (também com 28x28 pixels)
+y_test <- mnist$test$y    # Rótulos de teste: número real de cada imagem da base de teste
+
+# ======================================================
+# 3. PRÉ-PROCESSAMENTO DOS DADOS
+# ======================================================
+
+# Redes neurais trabalham com vetores (uma sequência de números), não com matrizes 2D (imagens)
+# "Achata" a imagem 28x28 em um vetor de 784 posições (28*28 = 784)
+x_train <- array_reshape(x_train, c(nrow(x_train), 784))  # x_train: de [60000,28,28] para [60000,784]
+x_test  <- array_reshape(x_test, c(nrow(x_test), 784))    # x_test: de [10000,28,28] para [10000,784]
+
+# Normaliza os valores de pixels (originalmente entre 0 e 255) para ficar entre 0 e 1
+# Isso ajuda no desempenho e estabilidade do treinamento
+x_train <- x_train / 255
+x_test  <- x_test / 255
+
+# Transforma os rótulos em "one-hot encoding"
+# Exemplo: rótulo 3 vira [0 0 0 1 0 0 0 0 0 0]
+# Isso é necessário para usar a função softmax na saída
+y_train_cat <- to_categorical(y_train, 10) #Converte todos os rótulos do treino para esse formato one-hot com 10 classes (0 a 9).
+y_test_cat  <- to_categorical(y_test, 10) # Converte todos os rótulos do teste para esse formato one-hot com 10 classes (0 a 9).
+#Por que fazer isso?
+#Porque a camada de saída da rede neural vai produzir 10 valores
+#(um para cada dígito de 0 a 9) — e precisamos comparar esses 10 valores com uma 
+#representação equivalente do rótulo.
+#Saída da rede:
+#A última camada usa a função softmax, que devolve probabilidades:
+#[0.01, 0.03, 0.05, 0.90, 0.005, ...]  # 90% de chance de ser o 3
+#Então a resposta esperada tem que estar no mesmo formato, como:
+# [0 0 0 1 0 0 0 0 0 0]
+#Assim o modelo sabe "a resposta certa é a classe 3" e consegue calcular 
+#o erro (loss) corretamente usando, por exemplo, categorical crossentropy.
+
+# ======================================================
+# 4. CRIAÇÃO DO MODELO DE REDE NEURAL
+# ======================================================
+
+# Cria o modelo da nossa rede neural, e com o símbolo %>%, vamos encadeando as 
+# camadas que compõem a rede — como se estivéssemos empilhando blocos.
+model <- keras_model_sequential() %>%
+  
+  # Primeira camada oculta: 128 neurônios
+  # activation = "relu" → função que deixa passar valores positivos e zera os negativos
+  # input_shape = 784 → estamos passando vetores com 784 números (de imagens 28x28)
+  layer_dense(units = 128, activation = "relu", input_shape = 784) %>%
+  
+  # Camada de saída: 10 neurônios (um para cada classe de dígito: 0 a 9)
+  # activation = "softmax" → transforma a saída em uma distribuição de probabilidades
+  layer_dense(units = 10, activation = "softmax")
+
+#softmax
+#Uma função que transforma os 10 valores de saída em probabilidades (números entre 0 e 1 que somam 1).
+#A classe com a maior probabilidade é a predição da rede.
+#Exemplo: saída [0.01, 0.03, 0.90, ..., 0.01] → maior valor é na posição 3 → classe 2 (R começa em 1, por isso corrigimos com -1 depois).
+
+
+#funções de ativação: componentes cruciais que introduzem não-linearidade no modelo, 
+#permitindo que a rede aprenda relações complexas entre os dados de entrada e saída.
+#Sigmoide, Tangente Hiperbólica (tanh), ReLU, Leaky ReLU, etc.
+#ReLU na camada oculta para aprendizagem de representações não lineares.
+#Softmax na camada de saída para gerar uma distribuição de probabilidades 
+#e realizar a classificação multiclasse.
+
+
+# ======================================================
+# 5. COMPILA O MODELO
+# ======================================================
+
+#A compilação define o “modo de treinamento” do modelo — ou seja, ela diz:
+#Qual função de erro usar (como calcular o quão errado está);
+#Qual otimizador usar (como corrigir os erros);
+#Qual métrica acompanhar (como medir o desempenho).
+
+#categorical_crossentropy
+#o modelo precisa aprender a prever a classe correta.
+#A função categorical_crossentropy compara a distribuição prevista pelo 
+#modelo (gerada pela softmax) com a distribuição verdadeira (one-hot encoded).
+#Ela calcula o quanto a predição do modelo está distante do valor real.
+# Agora precisamos "compilar" o modelo, ou seja, definir como ele será treinado:
+model %>% compile(
+  loss = "categorical_crossentropy",  # Função de erro usada para classificação com múltiplas classes
+  optimizer = "adam",                 # Algoritmo eficiente que ajusta os pesos da rede durante o treinamento
+  metrics = "accuracy"                # Métrica usada para avaliar o desempenho (taxa de acerto)
+)
+#Adam (Adaptive Moment Estimation) define como os pesos serão ajustados ao longo das épocas (iterações de treino).
+#Ajusta automaticamente a taxa de aprendizado
+
+# ======================================================
+# 6. AVALIAÇÃO ANTES DO TREINAMENTO
+# ======================================================
+
+# Vamos verificar como a rede se comporta ANTES de ser treinada
+# Espera-se um desempenho muito ruim, pois os pesos ainda são aleatórios
+score_before <- model %>% evaluate(x_test, y_test_cat, verbose = 0)
+cat("Acurácia ANTES do treinamento:", score_before[[2]], "\n")
+#Testa o modelo em um conjunto de dados (no caso, x_test e y_test_cat)
+#Usa a função de loss e as métricas definidas durante a 
+#compilação (loss = categorical_crossentropy, metrics = accuracy);
+#Retorna um vetor com os resultados:
+#score_before[[1]] → valor da função de erro (loss)
+#score_before[[2]] → valor da métrica (accuracy)
+#verbose = 0 faz com que a função rode silenciosamente, sem imprimir nada na tela.
+
+# ======================================================
+# 7. SELECIONA IMAGENS ALEATÓRIAS PARA VER RESULTADOS
+# ======================================================
+
+#A função sample() está sorteando 9 números aleatórios de 1 a 10.000 
+#(porque o conjunto de teste do MNIST tem 10.000 imagens)
+indices <- sample(1:10000, 9) 
+
+#selecionando as imagens correspondentes aos índices sorteados
+#mnist$test$x é um array com todas as imagens de teste, com dimensão [10000, 28, 28]
+imgs <- mnist$test$x[indices,,]      # imgs é um array com 9 imagens de tamanho 28x28.
+#Aqui você pega os rótulos reais (as classes) correspondentes às imagens sorteadas
+#true_labels vai ser um vetor com os 9 números corretos para as 9 imagens selecionadas.
+true_labels <- y_test[indices]       # rótulos reais, como 2, 8, 5, etc.
+
+# ======================================================
+# 8. FAZ PREVISÕES ANTES DO TREINAMENTO
+# ======================================================
+
+# Usa a rede (ainda não treinada) para fazer previsões nas 9 imagens
+preds_before <- model %>% predict(x_test[indices, ])
+# Encontra o índice da maior probabilidade prevista (classe com maior chance)
+# Convertendo as probabilidades em rótulos previstos
+#Como o which.max em R começa do 1, e os rótulos do MNIST vão de 0 a 9, você faz o -1 no final.
+pred_labels_before <- apply(preds_before, 1, which.max) - 1  # Corrige o índice R (começa em 1)
+
+# ======================================================
+# 9. TREINAMENTO DA REDE NEURAL
+# ======================================================
+
+# Aqui a rede realmente aprende com os dados
+# A função fit() é responsável por treinar a rede neural com os dados fornecidos
+model %>% fit(
+  x_train, y_train_cat,         # Dados de entrada e saída (imagens e rótulos)
+  epochs = 10,                   # Quantas vezes o modelo verá o conjunto de treino completo
+  batch_size = 128,             # Quantas imagens são vistas por vez durante o treinamento
+  validation_split = 0.2,       # 20% dos dados de treino são reservados para validação
+  verbose = 2                   # Mostra informações do processo
+)
+
+#epochs = 10
+#O modelo vai passar 10 vezes por todo o conjunto de treino.
+#Cada "passada" completa pelo conjunto é chamada de uma época.
+#Em cada época, o modelo ajusta os pesos para tentar errar menos.
+
+#Os dados são divididos em lotes (batches) com 128 imagens.
+#Cada lote é usado para calcular o erro e atualizar os pesos.
+#Usar batches acelera o treinamento e ajuda a generalizar melhor.
+
+#validation_split = 0.2
+#Separa automaticamente 20% dos dados de treino para serem usados como validação (não entram no treino em si).
+#Isso ajuda a acompanhar se o modelo está generalizando bem ou só memorizando.
+
+# ======================================================
+# 10. AVALIAÇÃO APÓS O TREINAMENTO
+# ======================================================
+
+# Agora avaliamos o modelo novamente com os dados de teste
+# Espera-se um aumento na acurácia, pois a rede "aprendeu"
+score_after <- model %>% evaluate(x_test, y_test_cat, verbose = 0)
+cat("curácia APÓS o treinamento:", score_after[[2]], "\n")
+
+# ======================================================
+# 11. PREVISÕES APÓS O TREINAMENTO
+# ======================================================
+
+# Faz previsões nas mesmas 9 imagens, mas agora com a rede treinada
+preds_after <- model %>% predict(x_test[indices, ])
+pred_labels_after <- apply(preds_after, 1, which.max) - 1
+
+# ======================================================
+# 12. EXIBIÇÃO DAS IMAGENS COM RESULTADOS
+# ======================================================
+
+# GRAFICO 1 - Cria uma lista com os gráficos das 9 imagens
+plot_list <- list()
+for (i in 1:9) {
+  # Converte a imagem para formato apropriado para o ggplot
+  df <- data.frame(
+    x = rep(1:28, each = 28),
+    y = rep(28:1, 28),                  # Inverte a coordenada Y para exibir corretamente
+    val = as.vector(imgs[i,,])         # Pega os valores dos pixels
+  )
+  
+  # GRAFICO 2 - Cria um gráfico da imagem com título mostrando os rótulos
+  plot_list[[i]] <- ggplot(df, aes(x, y, fill = val)) +
+    geom_tile() +
+    scale_fill_gradient(low = "white", high = "black") +
+    theme_void() +
+    theme(legend.position = "none") +
+    ggtitle(paste0("Real: ", true_labels[i],
+                   "\nAntes: ", pred_labels_before[i],
+                   " | Depois: ", pred_labels_after[i]))
+}
+
+# Mostra os 9 gráficos em uma grade 3x3
+do.call("grid.arrange", c(plot_list, ncol = 3))

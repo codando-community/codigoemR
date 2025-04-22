@@ -1,0 +1,95 @@
+# Carregando a biblioteca keras, que permite usar deep learning de forma simples no R
+library(keras)
+
+# Carregando o dataset Fashion MNIST
+# Este dataset contém 70.000 imagens em tons de cinza (28x28 pixels), divididas em:
+# - 60.000 imagens para treino
+# - 10.000 imagens para teste
+# Cada imagem representa uma peça de roupa (classificada em uma das 10 categorias)
+fashion_mnist <- dataset_fashion_mnist()
+
+# Separando as imagens e rótulos de treino e teste
+c(train_images, train_labels) %<-% fashion_mnist$train  # 60.000 imagens de treino
+c(test_images, test_labels) %<-% fashion_mnist$test     # 10.000 imagens de teste
+
+# train_images/test_images: são arrays 3D (N, 28, 28) com os pixels das imagens em escala de 0 a 255
+# train_labels/test_labels: são vetores com os "rótulos" (de 0 a 9) indicando a classe da roupa
+
+# Normalizando os dados de entrada
+# A rede neural trabalha melhor quando os dados de entrada estão entre 0 e 1
+train_images <- train_images / 255
+test_images <- test_images / 255
+
+# Nome das classes, para facilitar a interpretação dos resultados
+class_names <- c("Camiseta", "Calça", "Suéter", "Vestido", "Casaco",
+                 "Sandália", "Camisa", "Tênis", "Bolsa", "Bota")
+
+# Construindo o modelo sequencial
+model <- keras_model_sequential() %>%
+  
+  # Camada de entrada: achata as imagens 28x28 (2D) em vetores de 784 valores (1D)
+  # Isso é necessário porque a camada densa espera um vetor de entrada
+  layer_flatten(input_shape = c(28, 28)) %>%
+  
+  # Camada oculta: 128 neurônios com função de ativação ReLU
+  # Essa camada aprende padrões não lineares nas imagens
+  layer_dense(units = 128, activation = 'relu') %>%
+  
+  # Camada de saída: 10 neurônios (um para cada classe), com função softmax
+  # A softmax retorna um vetor de probabilidades (valores entre 0 e 1 que somam 1)
+  layer_dense(units = 10, activation = 'softmax')
+
+# Compilando o modelo: definindo como ele será treinado
+model %>% compile(
+  optimizer = 'adam',                         # Otimizador adaptativo eficiente
+  loss = 'sparse_categorical_crossentropy',   # Função de perda para rótulos inteiros (0 a 9)
+  metrics = 'accuracy'                        # Métrica usada: acurácia (nº de acertos / total)
+)
+
+#categorical_crossentropy espera que y_train e y_test estejam codificados 
+#como vetores com zeros e um único 1 (ou seja, one-hot encoding).
+#sparse_categorical_crossentropy é uma versão mais simples: ela aceita 
+#os números inteiros (0 a 9) como rótulo. Não precisa fazer to_categorical().
+
+# Treinando o modelo: 5 ciclos completos (épocas) sobre os dados de treino
+# Quanto mais épocas, maior o potencial de aprendizado (mas pode causar overfitting)
+model %>% fit(train_images, train_labels, epochs = 5)
+
+# Avaliando o modelo nos dados de teste (que não foram usados durante o treinamento)
+score <- model %>% evaluate(test_images, test_labels)
+
+# Exibindo o resultado da avaliação: acurácia no conjunto de teste
+# score é uma lista com: [1] valor da perda (loss), [2] acurácia
+cat("Acurácia no teste:", score[[2]], "\n")
+
+# Gerando previsões com o modelo treinado usando os dados de teste
+# Resultado: uma matriz 10.000 x 10 com as probabilidades de cada classe para cada imagem
+predictions <- model %>% predict(test_images)
+
+# Vamos visualizar as primeiras 10 imagens e as suas previsões
+# Ajustamos a área de plotagem: 2 linhas e 5 colunas
+par(mfrow = c(2, 5), mar = c(2, 2, 3, 2))  # Define layout gráfico com margens ajustadas
+
+# Loop para mostrar 10 imagens com as previsões do modelo
+for (i in 1:10) {
+  # Pegamos a imagem de teste i
+  img <- test_images[i,,]  # Formato [28, 28]
+  
+  # Rótulo real da imagem (valor de 0 a 9)
+  true_label <- test_labels[i]
+  
+  # Pegamos o índice da maior probabilidade prevista pela rede
+  # which.max retorna a posição do maior valor (softmax mais alto)
+  pred_label <- which.max(predictions[i,]) - 1  # -1 pois R é 1-indexado
+  
+  # Verifica se a previsão foi correta
+  correct <- ifelse(pred_label == true_label, "✅", "❌")
+  
+  # Plota a imagem: usamos t(apply(...)) para ajustar a orientação vertical
+  image(1:28, 1:28, t(apply(img, 2, rev)), col = gray.colors(255), axes = FALSE)
+  
+  # Título do gráfico: mostra a classe prevista, real, e se acertou
+  title(main = paste0("Pred: ", class_names[pred_label + 1],
+                      "\nReal: ", class_names[true_label + 1],
+                      " ", correct))
+}
